@@ -48,11 +48,7 @@ impl std::fmt::Display for Args {
             self.output
         );
 
-        let _ = write!(
-            f,
-            ", --app-name {:?}",
-            self.app_name
-        );
+        let _ = write!(f, ", --app-name {:?}", self.app_name);
         Ok(())
     }
 }
@@ -117,7 +113,7 @@ async fn key_event_loop(
     proxy: GlobalShortcuts,
     session: Session<GlobalShortcuts>,
     stream: impl futures_util::Stream<Item = Activated>,
-    window_name: &str
+    window_name: &str,
 ) -> ashpd::Result<()> {
     pin_mut!(stream);
     while let Some(signal) = stream.next().await {
@@ -133,18 +129,31 @@ async fn key_event_loop(
 fn capture_pressed(window_name: &str) {
     debug!("Capture pressed");
     let window = find_window_by_name(window_name);
-    if window.is_some(){
+    if window.is_some() {
         take_screenshot(&window.unwrap());
     }
 }
 use fs_extra::dir;
 use xcap::Window;
 
-fn find_window_by_name(name: &str) -> Option<Window>{
+fn find_window_by_name(name: &str) -> Option<Window> {
     let windows = Window::all().unwrap().to_owned();
+    let windows_string = windows
+        .iter()
+        .map(|w| {
+            match w.title(){
+                Ok(val) => format!("\"{}\"", val),
+                _ => String::from("Unknown")
+            }
+    })
+        .reduce(|mut string, title| {
+            string.push_str(&format!(", {}", &title));
+            return string;
+        });
+    debug!("Found windows: {}", windows_string.unwrap_or("No windows found".to_string()));
     let window = windows
         .into_iter()
-        .find(|w| w.title().as_deref().unwrap_or_default() == name);
+        .find(|w| w.title().as_deref().unwrap_or_default().trim().eq_ignore_ascii_case(name));
     if window.is_some() {
         debug!("Found window titled {}", name);
     } else {
@@ -153,15 +162,15 @@ fn find_window_by_name(name: &str) -> Option<Window>{
     return window;
 }
 
-fn take_screenshot(window: &Window){
+fn take_screenshot(window: &Window) {
     dir::create_all("target/windows", true).unwrap();
     if !window.is_minimized().unwrap() {
         let image = window.capture_image().unwrap();
         image
             .save(format!(
                 "target/windows/window-{}.png",
-                &window.title().unwrap())
-            )
+                &window.title().unwrap().trim()
+            ))
             .unwrap();
         debug!("Took screenshot");
     }
