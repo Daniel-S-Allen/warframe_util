@@ -6,7 +6,6 @@ use ashpd::desktop::{
 use clap::{Parser, ValueEnum};
 use ftail::Ftail;
 use futures_util::{StreamExt, pin_mut};
-use image::{GrayImage, ImageReader};
 use imageproc::contrast::{ThresholdType, otsu_level, threshold_mut};
 use log::{LevelFilter, debug, error, info, trace};
 use std::{
@@ -62,7 +61,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     setup_logger(&arguments);
     info!("Running with arguments: {}", arguments);
     let keybinds = setup_keybinds().await.unwrap();
-    debug!("Connected to keybinds");
     debug!("Listening to keybinds");
     let _ = key_event_loop(keybinds.0, keybinds.1, keybinds.2, &arguments.app_name).await;
     Ok(())
@@ -138,7 +136,7 @@ fn capture_pressed(window_name: &str, image_number: u16) {
     let window = find_window_by_name(window_name);
     if window.is_some() {
         take_screenshot(&window.unwrap(), image_number);
-        let path_str = format!("target/windows/window-{}-original.png", &image_number);
+        let path_str = format!("target/windows/capture-{}-original.png", &image_number);
         let text = ocr(Path::new(&path_str), image_number);
         match text{
             Ok(text) => debug!("Extracted text: \"{}\"", text),
@@ -184,18 +182,21 @@ fn take_screenshot(window: &Window, image_number: u16) {
     dir::create_all("target/windows", false).unwrap();
     if !window.is_minimized().unwrap() {
         let image = window.capture_image().unwrap();
-        image
-            .save(format!(
+        let save_path = format!(
                 "target/windows/capture-{}-original.png",
                 image_number
-            ))
+            );
+        image
+            .save(&save_path)
             .unwrap();
-        debug!("Took screenshot");
+        debug!("Saved screenshot to {}", save_path);
     }
 }
-fn preprocess(image_path: &Path) -> Result<GrayImage, Error> {
-    let image = ImageReader::open(image_path)?.decode()?;
-    let mut grayscale = image.to_luma8();
+fn preprocess(image_path: &Path) -> Result<xcap::image::GrayImage, Error> {
+    let image = xcap::image::ImageReader::open(image_path)?.decode()?;
+    debug!("Reading image from {}", image_path.to_str().unwrap());
+    let cropped = image.crop_imm(0, 298, 3440, 315);
+    let mut grayscale = cropped.to_luma8();
     let threshold = otsu_level(&grayscale);
     threshold_mut(&mut grayscale, threshold, ThresholdType::Binary);
     return Ok(grayscale);
@@ -209,8 +210,8 @@ fn ocr(image_path: &Path, image_number: u16) -> Result<String, Error> {
     tesseract = tesseract.set_image(&temp_path.to_string())?;
     tesseract = tesseract.set_variable(
         "tessedit_char_whitelist",
-        // "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz ",
-        "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz 123456789,+",
+        "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz ",
+        // "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz 123456789,+",
     )?;
     let text = tesseract.get_text()?;
     return Ok(text);
